@@ -324,6 +324,18 @@ public class Ticket {
         byte[] uid = getUID();
         byte[] key = generateKey(uid);
 
+        boolean blank = utils.authenticate(defaultAuthenticationKey);
+        if(blank) {
+            infoToShow = "Blank card found. Please goto issue.";
+            return false;
+        }
+
+        boolean authState = utils.authenticate(key);
+        if(!authState) {
+            infoToShow = "Authentication failed or move too fast.";
+            return false;
+        }
+
         // fetch NFC card data
         getCounter();
         getTicketData(counter % 2);
