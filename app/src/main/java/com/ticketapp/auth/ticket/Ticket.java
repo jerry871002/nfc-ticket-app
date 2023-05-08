@@ -63,6 +63,8 @@ public class Ticket {
      * APP Settings
      */
     private static final int RIDES_PER_ISSUE = 2;
+
+    // EXPIRE_TIME in seconds
     private static final int EXPIRE_TIME = 300;
 
 
