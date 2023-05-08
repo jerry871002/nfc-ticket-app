@@ -41,11 +41,9 @@ public class Ticket {
     private int remainingUses = 0;
     private int expiryTime = 0;
     private int lastUsedTime = 0;
-
     private int counter = 0;
-    private int lastCounter = 0;
     private int upperBound = 0;
-    private byte[] cardHMAC = new byte[20];
+    private byte[] cardHMAC = new byte[8];
 
     private static String infoToShow = "-"; // Use this to show messages
 
@@ -53,12 +51,9 @@ public class Ticket {
      * Data Structure
      */
     private static final int UID_PAGE = 0;
-    private static final int[] BOUND_PAGE = {4, 13};
-    private static final int[] LAST_COUNTER_PAGE = {5, 14};
-    private static final int[] LAST_USE_TIME_PAGE = {6, 15};
-    private static final int[] EXPIRE_TIME_PAGE = {7, 16};
-    private static final int[] HMAC_PAGE = {8, 17};
-    private static final int TRANSACTION_PAGE = 22;
+    private static final int[] BOUND_PAGE = {4, 8};
+    private static final int[] EXPIRE_TIME_PAGE = {5, 9};
+    private static final int[] HMAC_PAGE = {6, 10};
     private static final int COUNTER_PAGE = 41;
     private static final int AUTH0_PAGE = 42;
     private static final int AUTH1_PAGE = 43;
@@ -67,7 +62,7 @@ public class Ticket {
     /**
      * APP Settings
      */
-    private static final int RIDES_ONE_ISSUE = 2;
+    private static final int RIDES_PER_ISSUE = 2;
     private static final int EXPIRE_TIME = 300;
 
 
@@ -152,7 +147,8 @@ public class Ticket {
 
     private boolean addToCounter() {
         byte[] one = {1, 0, 0, 0};
-        return utils.writePages(one, 0, COUNTER_PAGE, 1);
+        boolean res = utils.writePages(one, 0, COUNTER_PAGE, 1);
+        return res;
     }
 
     int pageToInt(byte[] bytes) {
@@ -172,25 +168,19 @@ public class Ticket {
 
     private boolean getTicketData(int block) {
         byte[] upperBoundArr = new byte[4];
-        byte[] lastCounterArr = new byte[4];
-        byte[] lastUsedTimeArr = new byte[4];
         byte[] expiryTimeArr = new byte[4];
 
         System.out.println("block:" + block);
         try {
             utils.readPages(BOUND_PAGE[block], 1, upperBoundArr, 0);
-            utils.readPages(LAST_COUNTER_PAGE[block], 1, lastCounterArr, 0);
-            utils.readPages(LAST_USE_TIME_PAGE[block], 1, lastUsedTimeArr, 0);
             utils.readPages(EXPIRE_TIME_PAGE[block], 1, expiryTimeArr, 0);
-            utils.readPages(HMAC_PAGE[block], 5, cardHMAC, 0);
+            utils.readPages(HMAC_PAGE[block], 2, cardHMAC, 0);
         } catch (Exception e) {
             Utilities.log("getTicketData, read pages error", true);
             return false;
         }
         try {
             upperBound = pageToInt(upperBoundArr);
-            lastCounter = pageToInt(lastCounterArr);
-            lastUsedTime = pageToInt(lastUsedTimeArr);
             expiryTime = pageToInt(expiryTimeArr);
         } catch (Exception e) {
             Utilities.log("getTicketData, convert to int error", true);
@@ -201,16 +191,12 @@ public class Ticket {
 
     private byte[] computeHMAC() {
         byte[] upperBoundArr = toByteArr(upperBound);
-        byte[] lastCounterArr = toByteArr(lastCounter);
-        byte[] lastUsedTimeArr = toByteArr(lastUsedTime);
         byte[] expiryTimeArr = toByteArr(expiryTime);
 
         ByteArrayOutputStream dataStream = new ByteArrayOutputStream();
         try {
             dataStream.write(uid);
             dataStream.write(upperBoundArr);
-            dataStream.write(lastCounterArr);
-            dataStream.write(lastUsedTimeArr);
             dataStream.write(expiryTimeArr);
         } catch (Exception e) {
             Utilities.log("writeTicketData, compute HMAC value error", true);
@@ -219,43 +205,30 @@ public class Ticket {
         return macAlgorithm.generateMac(dataStream.toByteArray());
     }
 
-    private boolean writeTicketData(boolean use) {
+    private boolean writeTicketData() {
         int block = counter % 2;
+        boolean res = true;
         byte[] upperBoundArr = toByteArr(upperBound);
-        byte[] lastCounterArr = toByteArr(lastCounter);
-        byte[] lastUsedTimeArr = toByteArr(lastUsedTime);
         byte[] expiryTimeArr = toByteArr(expiryTime);
-        byte[] writeHMAC = computeHMAC();
-
-        // Transaction Begins, set TRANSACTION_PAGE to 1
+        byte[] writeHMAC = Arrays.copyOfRange(computeHMAC(), 0, 8);
+        // Write data to current block
         try {
-            utils.writePages(new byte[]{1, 0, 0, 0}, 0, TRANSACTION_PAGE, 1);
+            res &= utils.writePages(upperBoundArr, 0, BOUND_PAGE[block], 1);
+            res &= utils.writePages(expiryTimeArr, 0, EXPIRE_TIME_PAGE[block], 1);
+            res &= utils.writePages(writeHMAC, 0, HMAC_PAGE[block], 2);
         } catch (Exception e) {
-            Utilities.log("Transaction begin error", true);
+            Utilities.log("write data error", true);
         }
-
-        // Write data to card
+        // Backup data to the other block
+        block = (block + 1) % 2;
         try {
-            utils.writePages(upperBoundArr, 0, BOUND_PAGE[block], 1);
-            utils.writePages(lastCounterArr, 0, LAST_COUNTER_PAGE[block], 1);
-            utils.writePages(lastUsedTimeArr, 0, LAST_USE_TIME_PAGE[block], 1);
-            utils.writePages(expiryTimeArr, 0, EXPIRE_TIME_PAGE[block], 1);
-            utils.writePages(writeHMAC, 0, HMAC_PAGE[block], 5);
-            if (use) {
-                addToCounter();
-            }
+            res &= utils.writePages(upperBoundArr, 0, BOUND_PAGE[block], 1);
+            res &= utils.writePages(expiryTimeArr, 0, EXPIRE_TIME_PAGE[block], 1);
+            res &= utils.writePages(writeHMAC, 0, HMAC_PAGE[block], 2);
         } catch (Exception e) {
-            Utilities.log("Transaction data writing actions error", true);
+            Utilities.log("backup data error", true);
         }
-
-        // Transaction Ends, set TRANSACTION_PAGE back to 0
-        try {
-            utils.writePages(new byte[]{0, 0, 0, 0}, 0, TRANSACTION_PAGE, 1);
-        } catch (Exception e) {
-            Utilities.log("Transaction end error", true);
-        }
-
-        return true;
+        return res;
     }
 
     /**
@@ -268,70 +241,51 @@ public class Ticket {
         boolean blank = utils.authenticate(defaultAuthenticationKey);
         boolean authState = utils.authenticate(key) | blank;
 
-        if (blank) {
-            initBlankCard(key);
-            upperBound = counter + RIDES_ONE_ISSUE;
-            lastCounter = counter;
-            lastUsedTime = 0;
-            expiryTime = 0;
-            writeTicketData(false);
-            return true;
-        }
-
-        if (!authState) {
-            infoToShow = "Authentication failed";
-            isValid = false;
-            return false;
-        }
-
         // fetch NFC card data
         getCounter();
         getTicketData(counter % 2);
 
+        if (blank) {
+            initBlankCard(key);
+            upperBound = counter + RIDES_PER_ISSUE;
+            expiryTime = 0;
+            if(!writeTicketData()) {
+                infoToShow = "Failed to issue ticket. Move too fast.";
+                return false;
+            }
+            infoToShow = "Blank card.\n" + RIDES_PER_ISSUE + " tickets have been issued.\nTotal: 2 rides";
+            return true;
+        }
+
+        if (!authState) {
+            infoToShow = "Authentication failed or move too fast.";
+            isValid = false;
+            return false;
+        }
+
         // check HMAC (Integrity)
-        byte[] computedHMAC = computeHMAC();
+        byte[] computedHMAC = Arrays.copyOfRange(computeHMAC(), 0, 8);
         boolean integrity = Arrays.equals(cardHMAC, computedHMAC);
-
-        // check Transaction value
-        byte[] transaction = new byte[4];
-        utils.readPages(TRANSACTION_PAGE, 1, transaction, 0);
-        int transactionNotDone = transaction[0];
-
         boolean resetCard = false;
 
         // if data is broken in one block, caused by crashed write, check the other block
-        if (transactionNotDone == 1 && !integrity) {
-            Utilities.log("Current Block Broken", true);
+        if (!integrity) {
+            Utilities.log("Current Block is Broken", true);
             getTicketData((counter + 1) % 2);
-            computedHMAC = computeHMAC();
+            computedHMAC = Arrays.copyOfRange(computeHMAC(), 0, 8);
             integrity = Arrays.equals(cardHMAC, computedHMAC);
             // check if data in the other block is valid
             if (integrity) {
-                Utilities.log("Restore data from another block", true);
-                // check if counter has been updated, not that possible cuz it's sequential in use()
-                if (counter == lastCounter + 1) {
-                    upperBound += 1;
-                }
-                lastCounter = counter;
+                Utilities.log("Data restored from another block", true);
             } else {
                 // two blocks are both broken
-                Utilities.log("Both two blocks have been broken", true);
+                Utilities.log("Move too fast, or two blocks are both broken.", true);
                 resetCard = true;
             }
-        }
-        // data has been successfully updated, but last time *ticket use* failed
-        else if (transactionNotDone == 1 && counter == lastCounter + 1) {
-            upperBound += 1;
-        }
-        // card has been modified
-        else if (!integrity) {
-            Utilities.log("Card is invalid", true);
-            resetCard = true;
         }
 
         if (resetCard) {
             upperBound = counter;
-            lastCounter = counter;
             lastUsedTime = 0;
             expiryTime = 0;
         }
@@ -342,20 +296,21 @@ public class Ticket {
             upperBound = counter;
         }
 
-        upperBound += RIDES_ONE_ISSUE;
+        upperBound += RIDES_PER_ISSUE;
         remainingUses = upperBound - counter;
 
-        if (expiryTime != 0) {
-            expiryTime += EXPIRE_TIME; // 120 Seconds
-        }
-
         /** Preparations all done, issue ticket*/
-        writeTicketData(false);
-
-        infoToShow = "Card in use.\n" + RIDES_ONE_ISSUE + " more tickets have been issued.\nTotal: " + remainingUses + " rides";
-        if (blank) {
-            infoToShow = "Blank card.\n" + RIDES_ONE_ISSUE + " tickets have been issued.\nTotal: " + remainingUses + " rides";
+        if(!writeTicketData()) {
+            infoToShow = "Failed to issue ticket. Move too fast.";
+            return false;
         }
+
+        if(resetCard) {
+            infoToShow = "Card is broken and has been reset.\n" + RIDES_PER_ISSUE + " tickets have been issued.\nTotal: 2 rides";
+            return true;
+        }
+
+        infoToShow = "Card in use.\n" + RIDES_PER_ISSUE + " more tickets have been issued.\nTotal: " + remainingUses + " rides";
         return true;
     }
 
@@ -371,42 +326,23 @@ public class Ticket {
         getTicketData(counter % 2);
 
         // check HMAC (Integrity)
-        byte[] computedHMAC = computeHMAC();
+        byte[] computedHMAC = Arrays.copyOfRange(computeHMAC(), 0, 8);
         boolean integrity = Arrays.equals(cardHMAC, computedHMAC);
 
-        // check Transaction value
-        byte[] transaction = new byte[4];
-        utils.readPages(TRANSACTION_PAGE, 1, transaction, 0);
-        int transactionNotDone = transaction[0];
-
         // if data is broken in one block, caused by crashed write, check the other block
-        if (transactionNotDone == 1 && !integrity) {
-            Utilities.log("Current Block Broken", true);
+        if (!integrity) {
+            Utilities.log("Current Block is Broken", true);
             getTicketData((counter + 1) % 2);
-            computedHMAC = computeHMAC();
+            computedHMAC = Arrays.copyOfRange(computeHMAC(), 0, 8);
             integrity = Arrays.equals(cardHMAC, computedHMAC);
             // check if data in the other block is valid
             if (integrity) {
-                Utilities.log("Restore data from another block", true);
-                // check if counter has been updated, not that possible cuz it's sequential
-                if (counter == lastCounter + 1) {
-                    upperBound += 1;
-                }
-                lastCounter = counter;
+                Utilities.log("Data restored from another block", true);
             } else {
                 // two blocks are both broken
-                Utilities.log("Both two blocks have been broken", true);
+                infoToShow = "Move too fast, or two blocks are both broken.";
                 return false;
             }
-        }
-        // data has been successfully updated, but last time *ticket use* failed
-        else if (transactionNotDone == 1 && counter == lastCounter + 1) {
-            upperBound += 1;
-        }
-        // card has been modified
-        else if (!integrity) {
-            Utilities.log("Card is invalid", true);
-            infoToShow = "Card is invalid";
         }
 
         SimpleDateFormat format = new SimpleDateFormat("dd/MM/yyyy' 'HH:mm:ss");
@@ -424,21 +360,28 @@ public class Ticket {
             return false;
         }
 
-        if (lastUsedTime > System.currentTimeMillis() / 1000 - 5) {
-            Utilities.log("Too fast, please wait and use card again", true);
-            infoToShow = "Too fast, please wait and use card again";
-            return false;
-        }
+//        if (lastUsedTime > System.currentTimeMillis() / 1000 - 2) {
+//            Utilities.log("Too fast, please wait and use card again", true);
+//            infoToShow = "Too fast, please wait and use card again";
+//            return false;
+//        }
 
-        lastCounter = counter;
         remainingUses = upperBound - counter - 1;
         lastUsedTime = (int) (System.currentTimeMillis() / 1000);
         if (expiryTime == 0) {
             expiryTime = lastUsedTime + EXPIRE_TIME;
+            counter++;
+            if(!writeTicketData()) {
+                infoToShow = "Failed to issue ticket. Move too fast.";
+                return false;
+            }
         }
-        counter++;
+
         /** Preparations all done, use ticket*/
-        writeTicketData(true);
+        if(!addToCounter()) {
+            infoToShow = "Failed to use ticket. Move too fast.";
+            return false;
+        }
 
         expiryTimeStamp = new Timestamp((long) expiryTime * 1000);
         infoToShow = "Ticket Used.\n" + remainingUses + " rides remain.\n"+ "Expire on " + format.format(expiryTimeStamp);
