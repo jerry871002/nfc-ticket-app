@@ -42,7 +42,7 @@ public class Ticket {
     private int expiryTime = 0;
     private int lastUsedTime = 0;
     private int counter = 0;
-    private int upperBound = 0;
+    private int maxCounterValue = 0;
     private byte[] cardHMAC = new byte[8];
 
     private static String infoToShow = "-"; // Use this to show messages
@@ -167,12 +167,12 @@ public class Ticket {
     }
 
     private boolean getTicketData(int block) {
-        byte[] upperBoundArr = new byte[4];
+        byte[] maxCounterValueArr = new byte[4];
         byte[] expiryTimeArr = new byte[4];
 
         System.out.println("block:" + block);
         try {
-            utils.readPages(BOUND_PAGE[block], 1, upperBoundArr, 0);
+            utils.readPages(BOUND_PAGE[block], 1, maxCounterValueArr, 0);
             utils.readPages(EXPIRE_TIME_PAGE[block], 1, expiryTimeArr, 0);
             utils.readPages(HMAC_PAGE[block], 2, cardHMAC, 0);
         } catch (Exception e) {
@@ -180,7 +180,7 @@ public class Ticket {
             return false;
         }
         try {
-            upperBound = pageToInt(upperBoundArr);
+            maxCounterValue = pageToInt(maxCounterValueArr);
             expiryTime = pageToInt(expiryTimeArr);
         } catch (Exception e) {
             Utilities.log("getTicketData, convert to int error", true);
@@ -190,13 +190,13 @@ public class Ticket {
     }
 
     private byte[] computeHMAC() {
-        byte[] upperBoundArr = toByteArr(upperBound);
+        byte[] maxCounterValueArr = toByteArr(maxCounterValue);
         byte[] expiryTimeArr = toByteArr(expiryTime);
 
         ByteArrayOutputStream dataStream = new ByteArrayOutputStream();
         try {
             dataStream.write(uid);
-            dataStream.write(upperBoundArr);
+            dataStream.write(maxCounterValueArr);
             dataStream.write(expiryTimeArr);
         } catch (Exception e) {
             Utilities.log("writeTicketData, compute HMAC value error", true);
@@ -208,12 +208,12 @@ public class Ticket {
     private boolean writeTicketData() {
         int block = counter % 2;
         boolean res = true;
-        byte[] upperBoundArr = toByteArr(upperBound);
+        byte[] maxCounterValueArr = toByteArr(maxCounterValue);
         byte[] expiryTimeArr = toByteArr(expiryTime);
         byte[] writeHMAC = Arrays.copyOfRange(computeHMAC(), 0, 8);
         // Write data to current block
         try {
-            res &= utils.writePages(upperBoundArr, 0, BOUND_PAGE[block], 1);
+            res &= utils.writePages(maxCounterValueArr, 0, BOUND_PAGE[block], 1);
             res &= utils.writePages(expiryTimeArr, 0, EXPIRE_TIME_PAGE[block], 1);
             res &= utils.writePages(writeHMAC, 0, HMAC_PAGE[block], 2);
         } catch (Exception e) {
@@ -222,7 +222,7 @@ public class Ticket {
         // Backup data to the other block
         block = (block + 1) % 2;
         try {
-            res &= utils.writePages(upperBoundArr, 0, BOUND_PAGE[block], 1);
+            res &= utils.writePages(maxCounterValueArr, 0, BOUND_PAGE[block], 1);
             res &= utils.writePages(expiryTimeArr, 0, EXPIRE_TIME_PAGE[block], 1);
             res &= utils.writePages(writeHMAC, 0, HMAC_PAGE[block], 2);
         } catch (Exception e) {
@@ -247,7 +247,7 @@ public class Ticket {
 
         if (blank) {
             initBlankCard(key);
-            upperBound = counter + RIDES_PER_ISSUE;
+            maxCounterValue = counter + RIDES_PER_ISSUE;
             expiryTime = 0;
             if(!writeTicketData()) {
                 infoToShow = "Failed to issue ticket. Move too fast.";
@@ -285,7 +285,7 @@ public class Ticket {
         }
 
         if (resetCard) {
-            upperBound = counter;
+            maxCounterValue = counter;
             lastUsedTime = 0;
             expiryTime = 0;
         }
@@ -293,11 +293,11 @@ public class Ticket {
         // check if the issued rides have expired
         if (expiryTime < (int) (System.currentTimeMillis() / 1000) && expiryTime != 0) {
             expiryTime = 0;
-            upperBound = counter;
+            maxCounterValue = counter;
         }
 
-        upperBound += RIDES_PER_ISSUE;
-        remainingUses = upperBound - counter;
+        maxCounterValue += RIDES_PER_ISSUE;
+        remainingUses = maxCounterValue - counter;
 
         /** Preparations all done, issue ticket*/
         if(!writeTicketData()) {
@@ -348,7 +348,7 @@ public class Ticket {
         SimpleDateFormat format = new SimpleDateFormat("dd/MM/yyyy' 'HH:mm:ss");
         Timestamp expiryTimeStamp = new Timestamp((long) expiryTime * 1000);
 
-        if (counter >= upperBound) {
+        if (counter >= maxCounterValue) {
             Utilities.log("No more tickets, please goto issue", true);
             infoToShow = "No more tickets, please goto issue";
             return false;
@@ -366,7 +366,7 @@ public class Ticket {
 //            return false;
 //        }
 
-        remainingUses = upperBound - counter - 1;
+        remainingUses = maxCounterValue - counter - 1;
         lastUsedTime = (int) (System.currentTimeMillis() / 1000);
         if (expiryTime == 0) {
             expiryTime = lastUsedTime + EXPIRE_TIME;
