@@ -66,6 +66,7 @@ public class Ticket {
 
     // EXPIRE_TIME in seconds
     private static final int EXPIRE_TIME = 300;
+    private static final int KEY_LENGTH = 16;
 
 
     /**
@@ -113,13 +114,13 @@ public class Ticket {
     }
 
     private byte[] generateKey(byte[] uid) {
-        byte[] key = new byte[16];
+        byte[] key = new byte[KEY_LENGTH];
         PBEKeySpec spec = new PBEKeySpec(new String(authenticationKey).toCharArray(), uid, 1000, 256);
         try {
             SecretKeyFactory keyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
             byte[] hash = keyFactory.generateSecret(spec).getEncoded();
-            key = new byte[16];
-            System.arraycopy(hash, 0, key, 0, 16);
+            key = new byte[KEY_LENGTH];
+            System.arraycopy(hash, 0, key, 0, KEY_LENGTH);
         } catch (Exception e) {
             Utilities.log("getKey error", true);
         }
