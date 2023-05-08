@@ -241,6 +241,8 @@ public class Ticket {
 
         byte[] uid = getUID();
         byte[] key = generateKey(uid);
+        macAlgorithm.setKey(key);
+
         boolean blank = utils.authenticate(defaultAuthenticationKey);
         boolean authState = utils.authenticate(key) | blank;
 
@@ -323,6 +325,7 @@ public class Ticket {
     public boolean use() throws GeneralSecurityException {
         byte[] uid = getUID();
         byte[] key = generateKey(uid);
+        macAlgorithm.setKey(key);
 
         boolean blank = utils.authenticate(defaultAuthenticationKey);
         if(blank) {
