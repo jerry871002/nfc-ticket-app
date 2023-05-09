@@ -40,7 +40,7 @@ public class Ticket {
     private Boolean isValid = false;
     private int remainingUses = 0;
     private int expiryTime = 0;
-    private int lastUsedTime = 0;
+    private static int lastUsedTime = 0;
     private int counter = 0;
     private int maxCounterValue = 0;
     private byte[] cardHMAC = new byte[8];
@@ -114,6 +114,20 @@ public class Ticket {
     }
 
     private byte[] generateKey(byte[] uid) {
+        byte[] key = new byte[KEY_LENGTH];
+        PBEKeySpec spec = new PBEKeySpec(new String(defaultHMACKey).toCharArray(), uid, 1000, 256);
+        try {
+            SecretKeyFactory keyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+            byte[] hash = keyFactory.generateSecret(spec).getEncoded();
+            key = new byte[KEY_LENGTH];
+            System.arraycopy(hash, 0, key, 0, KEY_LENGTH);
+        } catch (Exception e) {
+            Utilities.log("getKey error", true);
+        }
+        return key;
+    }
+
+    private byte[] generateHMACKey(byte[] uid) {
         byte[] key = new byte[KEY_LENGTH];
         PBEKeySpec spec = new PBEKeySpec(new String(authenticationKey).toCharArray(), uid, 1000, 256);
         try {
@@ -240,18 +254,19 @@ public class Ticket {
     public boolean issue(int daysValid, int uses) throws GeneralSecurityException {
 
         byte[] uid = getUID();
-        byte[] key = generateKey(uid);
-        macAlgorithm.setKey(key);
+        byte[] authKey = generateKey(uid);
+        byte[] hmacKey = generateHMACKey(uid);
+        macAlgorithm.setKey(hmacKey);
 
         boolean blank = utils.authenticate(defaultAuthenticationKey);
-        boolean authState = utils.authenticate(key) | blank;
+        boolean authState = utils.authenticate(authKey) | blank;
 
         // fetch NFC card data
         getCounter();
         getTicketData(counter % 2);
 
         if (blank) {
-            initBlankCard(key);
+            initBlankCard(authKey);
             maxCounterValue = counter + RIDES_PER_ISSUE;
             expiryTime = 0;
             if(!writeTicketData()) {
@@ -310,6 +325,14 @@ public class Ticket {
             return false;
         }
 
+        if (lastUsedTime > System.currentTimeMillis() / 1000 - 3) {
+            Utilities.log("Too fast, please wait and use card again", true);
+            infoToShow = "Please wait and issue card again.";
+            return false;
+        }
+
+        lastUsedTime = (int) (System.currentTimeMillis() / 1000);
+
         if(resetCard) {
             infoToShow = "Card is broken and has been reset.\n" + RIDES_PER_ISSUE + " tickets have been issued.\nTotal: 2 rides";
             return true;
@@ -324,8 +347,9 @@ public class Ticket {
      */
     public boolean use() throws GeneralSecurityException {
         byte[] uid = getUID();
-        byte[] key = generateKey(uid);
-        macAlgorithm.setKey(key);
+        byte[] authKey = generateKey(uid);
+        byte[] hmacKey = generateHMACKey(uid);
+        macAlgorithm.setKey(hmacKey);
 
         boolean blank = utils.authenticate(defaultAuthenticationKey);
         if(blank) {
@@ -333,7 +357,7 @@ public class Ticket {
             return false;
         }
 
-        boolean authState = utils.authenticate(key);
+        boolean authState = utils.authenticate(authKey);
         if(!authState) {
             infoToShow = "Authentication failed or move too fast.";
             return false;
@@ -378,11 +402,11 @@ public class Ticket {
             return false;
         }
 
-//        if (lastUsedTime > System.currentTimeMillis() / 1000 - 2) {
-//            Utilities.log("Too fast, please wait and use card again", true);
-//            infoToShow = "Too fast, please wait and use card again";
-//            return false;
-//        }
+        if (lastUsedTime > System.currentTimeMillis() / 1000 - 3) {
+            Utilities.log("Too fast, please wait and use card again", true);
+            infoToShow = "Please wait and use card again.";
+            return false;
+        }
 
         remainingUses = maxCounterValue - counter - 1;
         lastUsedTime = (int) (System.currentTimeMillis() / 1000);
@@ -400,6 +424,8 @@ public class Ticket {
             infoToShow = "Failed to use ticket. Move too fast.";
             return false;
         }
+
+        lastUsedTime = (int) (System.currentTimeMillis() / 1000);
 
         expiryTimeStamp = new Timestamp((long) expiryTime * 1000);
         infoToShow = "Ticket Used.\n" + remainingUses + " rides remain.\n"+ "Expire on " + format.format(expiryTimeStamp);
