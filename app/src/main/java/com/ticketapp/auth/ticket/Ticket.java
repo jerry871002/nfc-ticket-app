@@ -375,10 +375,15 @@ public class Ticket {
 
         remainingUses = maxCounterValue - counter - 1;
         lastUsedTime = (int) (System.currentTimeMillis() / 1000);
-        if (initCounter == counter && expiryTime == 0) {
-            expiryTime = lastUsedTime + EXPIRE_TIME;
-            if(!writeTicketData(false, true, false, true)) {
-                infoToShow = "Failed to issue ticket. Move too fast.";
+        if (expiryTime == 0) {
+            if (initCounter == counter) {
+                expiryTime = lastUsedTime + EXPIRE_TIME;
+                if(!writeTicketData(false, true, false, true)) {
+                    infoToShow = "Failed to issue ticket. Move too fast.";
+                    return false;
+                }
+            } else {
+                infoToShow = "Failed to use ticket. Rollback detected.";
                 return false;
             }
         }
