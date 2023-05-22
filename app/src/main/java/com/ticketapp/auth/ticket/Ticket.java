@@ -219,7 +219,7 @@ public class Ticket {
             dataStream.write(expiryTimeArr);
             dataStream.write(initCounterArr);
         } catch (Exception e) {
-            Utilities.log("writeTicketData, compute HMAC value error", true);
+            Utilities.log("compute HMAC value error", true);
             return new byte[20];
         }
         return macAlgorithm.generateMac(dataStream.toByteArray());
@@ -379,7 +379,7 @@ public class Ticket {
             if (initCounter == counter) {
                 expiryTime = lastUsedTime + EXPIRE_TIME;
                 if(!writeTicketData(false, true, false, true)) {
-                    infoToShow = "Failed to issue ticket. Move too fast.";
+                    infoToShow = "Failed to use ticket. Move too fast.";
                     return false;
                 }
             } else {
