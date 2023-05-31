@@ -67,8 +67,8 @@ public class Ticket {
      */
     private static final int RIDES_PER_ISSUE = 2;
 
-    // EXPIRE_TIME in seconds
-    private static final int EXPIRE_TIME = 300;
+    private static final int EXPIRE_TIME = 86400; // one day in seconds
+    private static final int COOLDOWN_TIME = 2; // in seconds
     private static final int KEY_LENGTH = 16;
 
 
@@ -149,8 +149,8 @@ public class Ticket {
             // change auth key
             utils.writePages(key, 0, PASSWD_PAGE, 4);
             // set auth0 and auth1
-            utils.writePages(new byte[]{48, 0, 0, 0}, 0, AUTH0_PAGE, 1);
-            utils.writePages(new byte[]{3, 0, 0, 0}, 0, AUTH1_PAGE, 1);
+            utils.writePages(new byte[]{3, 0, 0, 0}, 0, AUTH0_PAGE, 1);
+            utils.writePages(new byte[]{0, 0, 0, 0}, 0, AUTH1_PAGE, 1);
         } catch (Exception e) {
             Utilities.log("initBlankCard error", true);
         }
@@ -285,7 +285,7 @@ public class Ticket {
             return false;
         }
 
-        if (lastUsedTime > System.currentTimeMillis() / 1000 - 3) {
+        if (lastUsedTime > System.currentTimeMillis() / 1000 - COOLDOWN_TIME) {
             Utilities.log("Too fast, please wait and use card again", true);
             infoToShow = "Please wait and issue card again.";
             return false;
@@ -367,7 +367,7 @@ public class Ticket {
             return false;
         }
 
-        if (lastUsedTime > System.currentTimeMillis() / 1000 - 2) {
+        if (lastUsedTime > System.currentTimeMillis() / 1000 - COOLDOWN_TIME) {
             Utilities.log("Too fast, please wait and use card again", true);
             infoToShow = "Too fast, please wait and use card again";
             return false;
